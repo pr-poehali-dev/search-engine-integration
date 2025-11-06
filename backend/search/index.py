@@ -10,6 +10,8 @@ import os
 from typing import Dict, Any, List
 import psycopg2
 from psycopg2.extras import RealDictCursor
+import urllib.request
+import urllib.parse
 
 def get_db_connection():
     database_url = os.environ.get('DATABASE_URL')
@@ -47,20 +49,47 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 'isBase64Encoded': False
             }
         
-        results: List[Dict[str, str]] = [
-            {
-                'title': f'{query} - Yandex',
-                'url': f'https://yandex.ru/search/?text={query}',
-                'description': 'Результаты поиска из Яндекса',
-                'source': 'yandex'
-            },
-            {
-                'title': f'{query} - Google',
-                'url': f'https://google.com/search?q={query}',
-                'description': 'Результаты поиска из Google',
-                'source': 'google'
-            }
-        ]
+        serper_key = os.environ.get('SERPER_API_KEY')
+        results: List[Dict[str, str]] = []
+        
+        if serper_key:
+            try:
+                req_data = json.dumps({'q': query, 'num': 10}).encode('utf-8')
+                req = urllib.request.Request(
+                    'https://google.serper.dev/search',
+                    data=req_data,
+                    headers={
+                        'X-API-KEY': serper_key,
+                        'Content-Type': 'application/json'
+                    }
+                )
+                
+                with urllib.request.urlopen(req) as response:
+                    data = json.loads(response.read().decode('utf-8'))
+                    
+                    for item in data.get('organic', [])[:10]:
+                        results.append({
+                            'title': item.get('title', ''),
+                            'url': item.get('link', ''),
+                            'description': item.get('snippet', ''),
+                            'source': 'google'
+                        })
+            except Exception as e:
+                results = [{
+                    'title': 'Ошибка поиска',
+                    'url': '',
+                    'description': str(e),
+                    'source': 'google'
+                }]
+        else:
+            results = [
+                {
+                    'title': f'{query} - Google',
+                    'url': f'https://google.com/search?q={urllib.parse.quote(query)}',
+                    'description': 'Добавьте SERPER_API_KEY для реальных результатов',
+                    'source': 'google'
+                }
+            ]
         
         return {
             'statusCode': 200,
